@@ -1,4 +1,5 @@
 import os
+import asyncio
 import re
 import json
 import httpx
@@ -79,31 +80,7 @@ def build_columns_and_items(data: dict) -> tuple[list[str], list[dict]]:
 @mcp.tool(
     description="Fetch data from a public Google Sheet in real time. Supports filtering by column with case-insensitive substring matching. IMPORTANT: Supply sheet_url directly as a plain string — do NOT wrap it inside a JSON 'query' string, and do NOT concatenate multiple JSON objects. Only ONE sheet_url per request."
 )
-async def get_sheet_data(
-    sheet_url: str | None = None,
-    filter_column: str | None = None,
-    filter_value: str | None = None,
-    query: str | None = None,
-) -> dict:
-    """Fetch data from a public Google Sheet.
-
-    Args:
-        sheet_url: Full Google Sheet URL as a plain string (e.g. .../d/{id}/edit?gid=0). Do NOT wrap in JSON or combine with other URLs.
-        filter_column: Column name to filter on (requires filter_value)
-        filter_value: Filter value (in, case-insensitive matching)
-    """
-    if query is not None:
-        try:
-            parsed = json.loads(query)
-            if isinstance(parsed, dict):
-                sheet_url = parsed.get("sheet_url", sheet_url)
-                filter_column = parsed.get("filter_column", filter_column)
-                filter_value = parsed.get("filter_value", filter_value)
-        except json.JSONDecodeError:
-            pass
-        if not sheet_url and "}{" in query:
-            return {"error": "batch_requests_not_supported", "detail": "Send one sheet_url per request"}
-
+async def _process_one(sheet_url: str, filter_column: str | None = None, filter_value: str | None = None) -> dict:
     if not sheet_url:
         return {"error": "invalid_sheet_url"}
 
@@ -159,6 +136,73 @@ async def get_sheet_data(
     if warning:
         result["warning"] = warning
     return result
+
+
+def _split_query(query: str) -> list[str]:
+    parts = query.split("}{")
+    cleaned = []
+    for i, p in enumerate(parts):
+        p = p.strip()
+        if i == 0:
+            p = p.lstrip("{")
+        if i == len(parts) - 1:
+            p = p.rstrip("}")
+        if p:
+            cleaned.append("{" + p + "}")
+    return cleaned
+
+
+def _parse_query_to_params(query: str) -> list[dict]:
+    if "}{" not in query:
+        return []
+    results = []
+    for s in _split_query(query):
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, dict):
+                results.append(obj)
+        except json.JSONDecodeError:
+            pass
+    return results
+
+
+async def get_sheet_data(
+    sheet_url: str | None = None,
+    filter_column: str | None = None,
+    filter_value: str | None = None,
+    query: str | None = None,
+) -> dict:
+    """Fetch data from a public Google Sheet.
+
+    Args:
+        sheet_url: Full Google Sheet URL as a plain string (e.g. .../d/{id}/edit?gid=0). Do NOT wrap in JSON or combine with other URLs.
+        filter_column: Column name to filter on (requires filter_value)
+        filter_value: Filter value (in, case-insensitive matching)
+    """
+    if query is not None:
+        batch_params = _parse_query_to_params(query)
+        if batch_params:
+            coros = [
+                _process_one(
+                    sheet_url=p.get("sheet_url"),
+                    filter_column=p.get("filter_column"),
+                    filter_value=p.get("filter_value"),
+                )
+                for p in batch_params
+            ]
+            results = await asyncio.gather(*coros)
+            return {"results": results}
+
+        try:
+            parsed = json.loads(query)
+            if isinstance(parsed, dict):
+                sheet_url = parsed.get("sheet_url", sheet_url)
+                filter_column = parsed.get("filter_column", filter_column)
+                filter_value = parsed.get("filter_value", filter_value)
+        except json.JSONDecodeError:
+            pass
+
+    return await _process_one(sheet_url=sheet_url, filter_column=filter_column, filter_value=filter_value)
 
 
 def main():
