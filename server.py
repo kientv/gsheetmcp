@@ -77,7 +77,7 @@ def build_columns_and_items(data: dict) -> tuple[list[str], list[dict]]:
 
 
 @mcp.tool(
-    description="Fetch data from a public Google Sheet in real time. Supports filtering by column with case-insensitive substring matching."
+    description="Fetch data from a public Google Sheet in real time. Supports filtering by column with case-insensitive substring matching. IMPORTANT: Supply sheet_url directly as a plain string — do NOT wrap it inside a JSON 'query' string, and do NOT concatenate multiple JSON objects. Only ONE sheet_url per request."
 )
 async def get_sheet_data(
     sheet_url: str | None = None,
@@ -88,10 +88,9 @@ async def get_sheet_data(
     """Fetch data from a public Google Sheet.
 
     Args:
-        sheet_url: Full Google Sheet URL (e.g. .../d/{id}/edit?gid=0)
+        sheet_url: Full Google Sheet URL as a plain string (e.g. .../d/{id}/edit?gid=0). Do NOT wrap in JSON or combine with other URLs.
         filter_column: Column name to filter on (requires filter_value)
         filter_value: Filter value (in, case-insensitive matching)
-        query: JSON string fallback (for clients that wrap args in query field)
     """
     if query is not None:
         try:
