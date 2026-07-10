@@ -1,0 +1,12 @@
+[project]
+name = "gsheetmcp"
+version = "0.1.0"
+description = "MCP server for reading public Google Sheets via gviz endpoint"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+gsheetmcp = "server:main"
